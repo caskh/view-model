@@ -1,7 +1,8 @@
 use mod_api::{ClientHost, DrawContext, Flow, Hand, ScreenRenderPostEvent, ScreenView};
 
-use crate::ID;
-use crate::settings::{FIELDS, HIDE_ARMS_KEY, Settings, TARGET_KEY, TARGET_LABELS, Target};
+use crate::settings::{
+    FIELDS, HIDE_ARMS_KEY, PendingSettings, Settings, TARGET_KEY, TARGET_LABELS, Target,
+};
 
 type Rect = [f32; 4];
 
@@ -167,11 +168,11 @@ impl Editor {
 
     pub(crate) fn press(
         &mut self,
-        host: &dyn ClientHost,
         screen: &ScreenView<'_>,
         settings: &mut Settings,
+        pending: &mut PendingSettings,
     ) {
-        self.finish_drag(host, settings);
+        self.finish_drag(settings, pending);
         let layout = Layout::new(screen.rect);
         let mouse = screen.mouse;
         if contains(layout.main, mouse) {
@@ -181,17 +182,13 @@ impl Editor {
         } else if contains(layout.target, mouse) {
             let next = (settings.target.index() + 1) % TARGET_LABELS.len();
             settings.target = Target::from_index(next as u32);
-            host.set_setting(ID, TARGET_KEY, &next.to_string());
+            pending.set(TARGET_KEY, next.to_string());
         } else if contains(layout.hide, mouse) {
             settings.hide_arms = !settings.hide_arms;
-            host.set_setting(
-                ID,
-                HIDE_ARMS_KEY,
-                if settings.hide_arms { "true" } else { "false" },
-            );
+            pending.set(HIDE_ARMS_KEY, settings.hide_arms.to_string());
         } else if contains(layout.reset, mouse) {
             for (index, field) in FIELDS.iter().enumerate() {
-                self.edit(host, settings, index, field.default);
+                self.edit(settings, pending, index, field.default);
             }
         } else if let Some(index) = self.row_at(&layout, mouse) {
             self.focus = index;
@@ -216,19 +213,19 @@ impl Editor {
         }
     }
 
-    pub(crate) fn finish_drag(&mut self, host: &dyn ClientHost, settings: &Settings) {
+    pub(crate) fn finish_drag(&mut self, settings: &Settings, pending: &mut PendingSettings) {
         if let Some(original) = self.drag_start.take()
             && original != settings.value(self.hand, self.focus)
         {
-            settings.store(host, self.hand, self.focus);
+            settings.queue(pending, self.hand, self.focus);
         }
     }
 
     pub(crate) fn key(
         &mut self,
-        host: &dyn ClientHost,
         key: &str,
         settings: &mut Settings,
+        pending: &mut PendingSettings,
     ) -> Flow {
         if self.drag_start.is_some() {
             return Flow::Continue;
@@ -238,10 +235,10 @@ impl Editor {
                 self.focus = (self.focus + 1) % FIELDS.len()
             }
             "key.keyboard.up" => self.focus = (self.focus + FIELDS.len() - 1) % FIELDS.len(),
-            "key.keyboard.left" => self.adjust(host, settings, -1.0),
-            "key.keyboard.right" => self.adjust(host, settings, 1.0),
+            "key.keyboard.left" => self.adjust(settings, pending, -1.0),
+            "key.keyboard.right" => self.adjust(settings, pending, 1.0),
             "key.keyboard.home" => {
-                self.edit(host, settings, self.focus, FIELDS[self.focus].default)
+                self.edit(settings, pending, self.focus, FIELDS[self.focus].default)
             }
             _ => return Flow::Continue,
         }
@@ -250,10 +247,10 @@ impl Editor {
 
     pub(crate) fn scroll(
         &mut self,
-        host: &dyn ClientHost,
         screen: &ScreenView<'_>,
         delta: f64,
         settings: &mut Settings,
+        pending: &mut PendingSettings,
     ) {
         if self.drag_start.is_none()
             && delta.is_finite()
@@ -261,7 +258,7 @@ impl Editor {
             && let Some(index) = self.row_at(&Layout::new(screen.rect), screen.mouse)
         {
             self.focus = index;
-            self.adjust(host, settings, delta.signum());
+            self.adjust(settings, pending, delta.signum());
         }
     }
 
@@ -269,18 +266,24 @@ impl Editor {
         (0..FIELDS.len()).find(|&index| contains(layout.row(index), mouse))
     }
 
-    fn adjust(&self, host: &dyn ClientHost, settings: &mut Settings, direction: f64) {
+    fn adjust(&self, settings: &mut Settings, pending: &mut PendingSettings, direction: f64) {
         self.edit(
-            host,
             settings,
+            pending,
             self.focus,
             f64::from(settings.value(self.hand, self.focus)) + direction * FIELDS[self.focus].step,
         );
     }
 
-    fn edit(&self, host: &dyn ClientHost, settings: &mut Settings, index: usize, value: f64) {
+    fn edit(
+        &self,
+        settings: &mut Settings,
+        pending: &mut PendingSettings,
+        index: usize,
+        value: f64,
+    ) {
         if settings.set(self.hand, index, value) {
-            settings.store(host, self.hand, index);
+            settings.queue(pending, self.hand, index);
         }
     }
 }

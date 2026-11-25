@@ -5,11 +5,11 @@ mod settings;
 use std::sync::Mutex;
 
 use mod_api::{
-    ClientHost, ClientLevelUnloadEvent, ClientTickPostEvent, Flow, Hand, Hooks, KeyConflictContext,
-    KeyRegistration, Registrar, RegistrationContext, RenderArmEvent, RenderHandEvent,
-    SettingChangedEvent,
+    ClientHost, ClientLevelUnloadEvent, ClientTickPostEvent, ClientTickPreEvent, Flow, Hand, Hooks,
+    KeyConflictContext, KeyRegistration, Registrar, RegistrationContext, RenderArmEvent,
+    RenderHandEvent, SettingChangedEvent, Text,
 };
-use settings::{Settings, Target};
+use settings::{PendingSettings, Settings, Target};
 
 const ID: &str = "viewmodel";
 const OPEN_CONFIG: &str = "open_config";
@@ -23,6 +23,7 @@ struct ViewModel {
 struct State {
     settings: Option<Settings>,
     editor: screen::Editor,
+    pending: PendingSettings,
 }
 
 #[mod_api::horizon_mod]
@@ -39,19 +40,54 @@ impl Hooks for ViewModel {
     fn client_tick_post(&self, host: &mut dyn ClientHost, _: &mut ClientTickPostEvent) {
         {
             let mut state = self.state.lock().unwrap();
-            state.settings.get_or_insert_with(|| Settings::read(host));
+            let State {
+                settings, pending, ..
+            } = &mut *state;
+            if settings.is_none() && host.local_player().is_some() {
+                *settings = Some(Settings::read(host, pending));
+            }
         }
-        if host.consume_click(ID, OPEN_CONFIG) && host.mod_screen_open(ID) {
-            self.state.lock().unwrap().editor = screen::Editor::default();
+        if host.consume_click(ID, OPEN_CONFIG) {
+            if host.mod_screen_open(ID) {
+                self.state.lock().unwrap().editor = screen::Editor::default();
+            } else {
+                let _ = host.chat_line(Text::translate("viewmodel.error.open", Vec::new()));
+            }
+        }
+    }
+
+    fn client_tick_pre(&self, host: &mut dyn ClientHost, _: &mut ClientTickPreEvent) {
+        if self.state.lock().unwrap().pending.is_empty()
+            || host.mod_screen() == Some(ID)
+            || host.local_player().is_none()
+        {
+            return;
+        }
+        // Horizon's setting API writes synchronously. Give each I/O call its
+        // own tick hook and leave disk activity out of the editor.
+        let write = self.state.lock().unwrap().pending.take_next();
+        if let Some(write) = write {
+            if write.verify {
+                if host.setting(ID, write.key).as_deref() != Some(write.value.as_str()) {
+                    let _ = host.chat_line(Text::translate("viewmodel.error.save", Vec::new()));
+                }
+            } else {
+                host.set_setting(ID, write.key, &write.value);
+                self.state.lock().unwrap().pending.await_verification(write);
+            }
         }
     }
 
     fn client_level_unload(&self, _: &mut dyn ClientHost, _: &mut ClientLevelUnloadEvent<'_>) {
-        *self.state.lock().unwrap() = State::default();
+        let mut state = self.state.lock().unwrap();
+        state.settings = None;
+        state.editor = screen::Editor::default();
     }
 
-    fn setting_changed(&self, _: &mut dyn ClientHost, _: &mut SettingChangedEvent<'_>) {
-        self.state.lock().unwrap().settings = None;
+    fn setting_changed(&self, _: &mut dyn ClientHost, event: &mut SettingChangedEvent<'_>) {
+        let mut state = self.state.lock().unwrap();
+        state.pending.forget(event.key);
+        state.settings = None;
     }
 
     fn render_hand(&self, host: &dyn ClientHost, event: &mut RenderHandEvent<'_, '_>) -> Flow {
@@ -129,9 +165,13 @@ impl Hooks for ViewModel {
             return Flow::Continue;
         }
         let mut state = self.state.lock().unwrap();
-        let State { settings, editor } = &mut *state;
-        let settings = settings.get_or_insert_with(|| Settings::read(host));
-        editor.press(host, event.screen, settings);
+        let State {
+            settings,
+            editor,
+            pending,
+        } = &mut *state;
+        let settings = settings.get_or_insert_with(|| Settings::read(host, pending));
+        editor.press(event.screen, settings, pending);
         Flow::Cancel
     }
 
@@ -144,7 +184,9 @@ impl Hooks for ViewModel {
             return Flow::Continue;
         }
         let mut state = self.state.lock().unwrap();
-        let State { settings, editor } = &mut *state;
+        let State {
+            settings, editor, ..
+        } = &mut *state;
         if let Some(settings) = settings {
             editor.drag(event.screen, settings);
         }
@@ -159,7 +201,7 @@ impl Hooks for ViewModel {
         if host.mod_screen() != Some(ID) || event.button != 0 {
             return Flow::Continue;
         }
-        self.finish_drag(host);
+        self.finish_drag();
         Flow::Cancel
     }
 
@@ -172,11 +214,15 @@ impl Hooks for ViewModel {
             return Flow::Continue;
         }
         let mut state = self.state.lock().unwrap();
-        let State { settings, editor } = &mut *state;
+        let State {
+            settings,
+            editor,
+            pending,
+        } = &mut *state;
         let Some(settings) = settings else {
             return Flow::Continue;
         };
-        editor.key(host, event.key, settings)
+        editor.key(event.key, settings, pending)
     }
 
     fn screen_mouse_scrolled_pre(
@@ -188,26 +234,34 @@ impl Hooks for ViewModel {
             return Flow::Continue;
         }
         let mut state = self.state.lock().unwrap();
-        let State { settings, editor } = &mut *state;
+        let State {
+            settings,
+            editor,
+            pending,
+        } = &mut *state;
         if let Some(settings) = settings {
-            editor.scroll(host, event.screen, event.scroll[1], settings);
+            editor.scroll(event.screen, event.scroll[1], settings, pending);
         }
         Flow::Cancel
     }
 
-    fn screen_closing(&self, host: &dyn ClientHost, event: &mut mod_api::ScreenClosingEvent<'_>) {
+    fn screen_closing(&self, _: &dyn ClientHost, event: &mut mod_api::ScreenClosingEvent<'_>) {
         if event.screen.id == "mod" {
-            self.finish_drag(host);
+            self.finish_drag();
         }
     }
 }
 
 impl ViewModel {
-    fn finish_drag(&self, host: &dyn ClientHost) {
+    fn finish_drag(&self) {
         let mut state = self.state.lock().unwrap();
-        let State { settings, editor } = &mut *state;
+        let State {
+            settings,
+            editor,
+            pending,
+        } = &mut *state;
         if let Some(settings) = settings.as_ref() {
-            editor.finish_drag(host, settings);
+            editor.finish_drag(settings, pending);
         }
     }
 }

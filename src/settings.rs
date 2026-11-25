@@ -1,6 +1,7 @@
+use std::collections::VecDeque;
+
 use mod_api::{ClientHost, Hand, Registrar, SettingSpec};
 
-use crate::ID;
 use crate::pose::Pose;
 
 pub(crate) const TARGET_KEY: &str = "target";
@@ -65,6 +66,7 @@ impl Field {
             self.step,
             self.default,
         )
+        .tooltip("viewmodel.setting.editor_hint")
     }
 }
 
@@ -158,18 +160,30 @@ pub(crate) struct Settings {
 }
 
 impl Settings {
-    pub(crate) fn read(host: &dyn ClientHost) -> Self {
+    pub(crate) fn read(host: &dyn ClientHost, pending: &PendingSettings) -> Self {
         let values = [Hand::Main, Hand::Off].map(|hand| {
             std::array::from_fn(|i| {
                 let field = &FIELDS[i];
-                let value = host.setting_f64(field.key(hand)).unwrap_or(field.default);
+                let key = field.key(hand);
+                let value = pending
+                    .get(key)
+                    .or_else(|| host.setting_f64(key))
+                    .unwrap_or(field.default);
                 field.snap(value)
             })
         });
         Self {
             values,
-            target: Target::from_index(host.setting_choice(TARGET_KEY).unwrap_or_default()),
-            hide_arms: host.setting_bool(HIDE_ARMS_KEY).unwrap_or(false),
+            target: Target::from_index(
+                pending
+                    .get(TARGET_KEY)
+                    .or_else(|| host.setting_choice(TARGET_KEY))
+                    .unwrap_or_default(),
+            ),
+            hide_arms: pending
+                .get(HIDE_ARMS_KEY)
+                .or_else(|| host.setting_bool(HIDE_ARMS_KEY))
+                .unwrap_or(false),
         }
     }
 
@@ -196,18 +210,85 @@ impl Settings {
         true
     }
 
-    pub(crate) fn store(&self, host: &dyn ClientHost, hand: Hand, index: usize) {
-        host.set_setting(
-            ID,
+    pub(crate) fn queue(&self, pending: &mut PendingSettings, hand: Hand, index: usize) {
+        pending.set(
             FIELDS[index].key(hand),
-            &format!("{:.3}", self.value(hand, index)),
+            format!("{:.3}", self.value(hand, index)),
         );
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PendingSettings {
+    entries: VecDeque<SettingWrite>,
+}
+
+pub(crate) struct SettingWrite {
+    pub key: &'static str,
+    pub value: String,
+    pub verify: bool,
+}
+
+impl PendingSettings {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn get<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
+        self.entries
+            .iter()
+            .find(|entry| entry.key == key)
+            .and_then(|entry| entry.value.parse().ok())
+    }
+
+    pub(crate) fn set(&mut self, key: &'static str, value: String) {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.key == key) {
+            if entry.value != value {
+                entry.value = value;
+                entry.verify = false;
+            }
+        } else {
+            self.entries.push_back(SettingWrite {
+                key,
+                value,
+                verify: false,
+            });
+        }
+    }
+
+    pub(crate) fn forget(&mut self, key: &str) {
+        self.entries.retain(|entry| entry.key != key);
+    }
+
+    pub(crate) fn take_next(&mut self) -> Option<SettingWrite> {
+        self.entries.pop_front()
+    }
+
+    pub(crate) fn await_verification(&mut self, mut entry: SettingWrite) {
+        entry.verify = true;
+        self.entries.push_front(entry);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_settings_keep_only_the_latest_write_per_key() {
+        let mut pending = PendingSettings::default();
+        pending.set("main_x", "0.005".to_owned());
+        pending.set("main_y", "0.010".to_owned());
+        let first = pending.take_next().unwrap();
+        pending.await_verification(first);
+        pending.set("main_x", "0.015".to_owned());
+        assert_eq!(pending.get::<f32>("main_x"), Some(0.015));
+        let latest = pending.take_next().unwrap();
+        assert_eq!(latest.key, "main_x");
+        assert!(!latest.verify);
+        pending.forget("main_y");
+        assert!(pending.is_empty());
+    }
 
     #[test]
     fn transform_specs_keep_identity_and_distinct_hand_keys() {

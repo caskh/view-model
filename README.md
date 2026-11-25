@@ -10,7 +10,7 @@ Adjust the position, rotation, and scale of the models you see in first person. 
 
 1. Copy [viewmodel.hmod](viewmodel.hmod) into your Horizon profile’s `horizon-mods` folder and enable **View Model for Horizon** under **Options → Mods**.
 2. In a world, press **V** to open the editor. You can rebind **Open View Model** in **Options → Controls**. The same settings are available under **Options → Mods → View Model for Horizon → Config**.
-3. Choose a hand and drag a slider. Scroll over a row or use the left and right arrow keys for small adjustments. Up, down, and Tab move between rows. Home resets the selected value. **Reset to default** resets that hand’s seven sliders.
+3. Choose a hand and drag a slider. Scroll over a row or use the left and right arrow keys for small adjustments. Up, down, and Tab move between rows. Home resets the selected value. **Reset to default** resets that hand’s seven sliders. Changes preview immediately and save after you close the editor.
 
 Positive X moves right and positive Y moves up in view space. Depth (Z) moves the model toward you at positive values and away at negative values. Its −16 to +16 slider gradually approaches a bounded depth change so a large adjustment keeps the model on the same viewing ray. Scale changes the model’s size around its resting position and defaults to 1. Angles are in degrees. Settings are stored per Horizon profile.
 

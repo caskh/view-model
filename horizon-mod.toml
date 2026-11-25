@@ -1,6 +1,6 @@
 id = "viewmodel"
 name = "View Model for Horizon"
-version = "0.1.2"
+version = "0.1.3"
 description = "Adjust the position, rotation, and scale of each first-person hand."
 authors = ["caskh"]
 credits = "Original View Model for Minecraft Java by I-No-oNe."
@@ -12,5 +12,5 @@ side = "client"
 capabilities = ["registries"]
 
 [wasm]
-sha512 = "5c2910be7ececf75b6c8fdf64f8e211697e86e2989531c6d9f1a6587582f821c17c11ccda895dd608845f3db59be6a60e9ecd16f70a6b76d9fad952e4ad8e133"
+sha512 = "544fd01229f0224535cd3e33667422b42e29213b58009afc1e7031cbf1133a2c4c3b374296b0e31a0591053b233bbb3644e100e54f17ca5893d5191e94d13127"
 toolchain = "1.99.1 58cf8f9c35b355199727627d07ae34a4e2846d67"
