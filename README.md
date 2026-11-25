@@ -1,5 +1,7 @@
 # View Model for Horizon
 
+[Русский](README.ru.md) · [Español](README.es.md)
+
 Adjust the position, rotation, and scale of the models you see in first person. Main-hand and off-hand settings are independent and follow the logical hand when you change your dominant arm.
 
 ## Install and use
