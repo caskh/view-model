@@ -1,0 +1,15 @@
+[package]
+name = "view-model"
+version = "0.1.1"
+edition = "2024"
+publish = false
+description = "First-person hand and held-item transforms for Horizon."
+license = "MIT"
+homepage = "https://github.com/I-No-oNe/View-Model"
+
+[dependencies]
+glam = "0.30"
+horizon-mod-api = { path = ".horizon/sdk/api/crates/horizon-mod-api" }
+
+[package.metadata.horizon]
+sdk = "0a875da91dbb0fdcb7ba8c42c11341aa229af51a"
