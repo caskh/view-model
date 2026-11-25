@@ -4,6 +4,8 @@
 
 Ajusta la posición, la rotación y la escala de los modelos que ves en primera persona. La mano principal y la secundaria tienen ajustes independientes. Si cambias de mano dominante, los ajustes pasan al lado correspondiente de la pantalla.
 
+![Editor de View Model en Horizon con una espada de diamante y un tótem](README.es.png)
+
 ## Instalación y uso
 
 1. Copia [viewmodel.hmod](viewmodel.hmod) en la carpeta `horizon-mods` de tu perfil de Horizon. Activa **View Model for Horizon** en **Opciones → Mods**.

@@ -4,6 +4,8 @@
 
 Adjust the position, rotation, and scale of the models you see in first person. Main-hand and off-hand settings are independent and follow the logical hand when you change your dominant arm.
 
+![View Model editor in Horizon with a diamond sword and a totem](README.en.png)
+
 ## Install and use
 
 1. Copy [viewmodel.hmod](viewmodel.hmod) into your Horizon profile’s `horizon-mods` folder and enable **View Model for Horizon** under **Options → Mods**.
